@@ -468,9 +468,9 @@ data class FallingObject(
     val resId: Int,
     var x: Float,
     var y: Float = -100f,
-    val size: Int = Random.nextInt(20, 50), // Уменьшенный размер для меньшей нагрузки
+    val size: Int = Random.nextInt(30, 75), // Уменьшенный размер для меньшей нагрузки
     var angle: Float = Random.nextFloat() * 360f,
-    val speed: Float = Random.nextFloat() * 4f + 3f, // Ускоренное падение
+    val speed: Float = Random.nextFloat() * 2f + 1.5f, // Ускоренное падение
     val rotationSpeed: Float = Random.nextFloat() * 2f - 1f // Случайная скорость вращения
 ) {
     constructor(resId: Int, screenWidthPx: Float) : this(
@@ -479,7 +479,7 @@ data class FallingObject(
     )
 
     fun update(deltaTime: Float) {
-        y += speed * deltaTime * 60f // Масштабирование скорости по времени кадра
+        y += speed * deltaTime * 30f // Масштабирование скорости по времени кадра
         angle += rotationSpeed * deltaTime * 60f // Плавное вращение
         if (y > -100f) { // Логирование только для видимых объектов
             println("FallingObject: x=$x, y=$y, size=$size, resId=$resId")
