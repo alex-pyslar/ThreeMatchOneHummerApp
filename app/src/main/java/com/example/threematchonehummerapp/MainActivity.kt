@@ -81,22 +81,21 @@ fun Match3Game() {
     val fallingObjects = remember { mutableStateListOf<FallingObject>() }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(100L) // Более частое создание объектов
-            if (fallingObjects.size < 120) { // Ограничение количества для производительности
+            kotlinx.coroutines.delay(100L)
+            if (fallingObjects.size < 120) {
                 fallingObjects.add(FallingObject(bgPictures.random(), screenWidthPx))
             }
-            // Удаление объектов, вышедших за пределы экрана
             fallingObjects.removeAll { it.y > screenHeightPx + 100f }
         }
     }
 
-    // Обновление позиций объектов с учётом времени кадра
+    // Update positions of falling objects
     LaunchedEffect(Unit) {
         var lastTime = System.nanoTime()
         while (true) {
-            kotlinx.coroutines.delay(8L) // ~60 FPS
+            kotlinx.coroutines.delay(8L)
             val currentTime = System.nanoTime()
-            val deltaTime = (currentTime - lastTime) / 1_000_000_000f // В секундах
+            val deltaTime = (currentTime - lastTime) / 1_000_000_000f
             lastTime = currentTime
             fallingObjects.forEach { it.update(deltaTime) }
         }
@@ -243,21 +242,21 @@ fun Match3Game() {
 
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
-                if (donationCurrency >= 50) {
-                    donationCurrency -= 50
+                if (score >= 50) {
+                    score -= 50
                     passiveIncome++
                 }
             }) {
-                Text("Увеличить пассивный заработок - 50")
+                Text("Увеличить пассивный заработок - 50 очков")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = {
-                if (donationCurrency >= 25) {
-                    donationCurrency -= 25
+                if (score >= 25) {
+                    score -= 25
                     scoreMultiplier++
                 }
             }) {
-                Text("Увеличить очки - 25")
+                Text("Увеличить множитель очков - 25 очков")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = { shopOpen = true }) {
@@ -468,10 +467,10 @@ data class FallingObject(
     val resId: Int,
     var x: Float,
     var y: Float = -100f,
-    val size: Int = Random.nextInt(30, 75), // Уменьшенный размер для меньшей нагрузки
+    val size: Int = Random.nextInt(30, 75),
     var angle: Float = Random.nextFloat() * 360f,
-    val speed: Float = Random.nextFloat() * 2f + 1.5f, // Ускоренное падение
-    val rotationSpeed: Float = Random.nextFloat() * 2f - 1f // Случайная скорость вращения
+    val speed: Float = Random.nextFloat() * 2f + 1.5f,
+    val rotationSpeed: Float = Random.nextFloat() * 2f - 1f
 ) {
     constructor(resId: Int, screenWidthPx: Float) : this(
         resId,
@@ -479,9 +478,9 @@ data class FallingObject(
     )
 
     fun update(deltaTime: Float) {
-        y += speed * deltaTime * 30f // Масштабирование скорости по времени кадра
-        angle += rotationSpeed * deltaTime * 60f // Плавное вращение
-        if (y > -100f) { // Логирование только для видимых объектов
+        y += speed * deltaTime * 30f
+        angle += rotationSpeed * deltaTime * 60f
+        if (y > -100f) {
             println("FallingObject: x=$x, y=$y, size=$size, resId=$resId")
         }
     }
