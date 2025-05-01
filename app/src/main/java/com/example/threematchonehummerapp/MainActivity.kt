@@ -5,19 +5,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,20 +22,20 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.platform.LocalDensity
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
 const val GRID_SIZE = 6
+const val TOTAL_TILES = GRID_SIZE * GRID_SIZE
 
-data class Tile(val imageIndex: Int = 0, val id: Long = Random.nextLong())
+data class Tile(val imageIndex: Int, val id: Long = Random.nextLong())
 
 class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
@@ -52,24 +48,27 @@ class MainActivity : ComponentActivity() {
 }
 
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Match3Game() {
+    val configuration = LocalConfiguration.current
+    val screenWidthPx = configuration.screenWidthDp * configuration.densityDpi / 160f
+    val screenHeightPx = configuration.screenHeightDp * configuration.densityDpi / 160f
+
     var grid by remember { mutableStateOf(generateGrid()) }
-    var selected by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var score by remember { mutableStateOf(0) }
     var scoreMultiplier by remember { mutableStateOf(1) }
     var passiveIncome by remember { mutableStateOf(0) }
     var donationCurrency by remember { mutableStateOf(0) }
     var shopOpen by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
+    var isAnimating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val shopItems = listOf(
         Triple(R.drawable.shop1, 10, 0),
         Triple(R.drawable.shop2, 25, 0),
         Triple(R.drawable.shop3, 50, 0)
     )
-    val bgColor = Color(0xFFFFE4EC)
+    val bgColor = Color(0x00FFE4EA)
     val bgPictures = listOf(
         R.drawable.bg_picture1,
         R.drawable.bg_picture2,
@@ -78,26 +77,35 @@ fun Match3Game() {
         R.drawable.bg_picture5,
     )
 
-    // Falling objects
+    // Falling background objects (snow-like effect)
     val fallingObjects = remember { mutableStateListOf<FallingObject>() }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(800L)
-            fallingObjects.add(FallingObject(bgPictures.random()))
+            kotlinx.coroutines.delay(100L) // Более частое создание объектов
+            if (fallingObjects.size < 30) { // Ограничение количества для производительности
+                fallingObjects.add(FallingObject(bgPictures.random(), screenWidthPx))
+            }
+            // Удаление объектов, вышедших за пределы экрана
+            fallingObjects.removeAll { it.y > screenHeightPx + 100f }
         }
     }
-    LaunchedEffect(fallingObjects) {
+
+    // Обновление позиций объектов с учётом времени кадра
+    LaunchedEffect(Unit) {
+        var lastTime = System.nanoTime()
         while (true) {
-            delay(16L)
-            fallingObjects.forEach { it.update() }
-            fallingObjects.removeAll { it.y > 1000f }
+            kotlinx.coroutines.delay(16L) // ~60 FPS
+            val currentTime = System.nanoTime()
+            val deltaTime = (currentTime - lastTime) / 1_000_000_000f // В секундах
+            lastTime = currentTime
+            fallingObjects.forEach { it.update(deltaTime) }
         }
     }
 
     // Passive income effect
     LaunchedEffect(passiveIncome) {
         while (true) {
-            delay(5000L)
+            kotlinx.coroutines.delay(5000L)
             score += passiveIncome
         }
     }
@@ -106,18 +114,18 @@ fun Match3Game() {
     LaunchedEffect(grid) {
         if (!isProcessing) {
             isProcessing = true
-            delay(200L) // Небольшая задержка для предотвращения гонки
             var iteration = 0
             while (true) {
                 iteration++
-                if (iteration > 10) break // Защита от бесконечного цикла
+                if (iteration > 10) {
+                    println("Warning: Reached max iterations in match processing")
+                    break
+                }
                 val matches = checkMatches(grid)
                 if (matches.isEmpty()) break
                 score += matches.size * scoreMultiplier
                 grid = removeMatches(grid, matches)
-                delay(500L) // Задержка для анимации исчезновения
                 grid = dropTiles(grid)
-                delay(500L) // Задержка для анимации падения
             }
             isProcessing = false
         }
@@ -128,17 +136,21 @@ fun Match3Game() {
             .fillMaxSize()
             .background(bgColor)
     ) {
-        // Falling objects layer
-        Box(modifier = Modifier.matchParentSize().zIndex(0f)) {
+        // Falling objects layer (background)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(-1f)
+        ) {
             fallingObjects.forEach { obj ->
                 Icon(
                     painter = painterResource(id = obj.resId),
                     contentDescription = null,
                     modifier = Modifier
-                        .size(obj.size.dp)
+                        .size((obj.size * 1.5f).dp)
                         .offset(x = obj.x.dp, y = obj.y.dp)
                         .rotate(obj.angle)
-                        .alpha(0.7f),
+                        .alpha(0.8f),
                     tint = Color.Unspecified
                 )
             }
@@ -191,73 +203,65 @@ fun Match3Game() {
                 modifier = Modifier
                     .size((GRID_SIZE * 55).dp)
             ) {
-                itemsIndexed(grid.flatten(), key = { _, tile -> tile.id }) { index, tile ->
+                itemsIndexed(grid, key = { _, tile -> tile.id }) { index, tile ->
                     val row = index / GRID_SIZE
                     val col = index % GRID_SIZE
-                    AnimatedVisibility(
-                        visible = tile.imageIndex != -1,
-                        enter = fadeIn(animationSpec = tween(300)),
-                        exit = fadeOut(animationSpec = tween(300))
-                    ) {
-                        TileView(
-                            tile = tile,
-                            row = row,
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = null,
-                                fadeOutSpec = null,
-                                placementSpec = tween(500)
-                            ),
-                            onClick = {
-                                if (isProcessing) return@TileView
-                                if (selected == null) {
-                                    selected = row to col
+                    TileView(
+                        tile = tile,
+                        onSwipe = { direction ->
+                            if (isProcessing || isAnimating) {
+                                println("Swipe ignored: isProcessing = $isProcessing, isAnimating = $isAnimating")
+                                return@TileView
+                            }
+                            println("Swiped at ($row, $col) direction: $direction")
+                            val targetIndex = when (direction) {
+                                SwipeDirection.RIGHT -> if (col < GRID_SIZE - 1) index + 1 else null
+                                SwipeDirection.LEFT -> if (col > 0) index - 1 else null
+                                SwipeDirection.UP -> if (row > 0) index - GRID_SIZE else null
+                                SwipeDirection.DOWN -> if (row < GRID_SIZE - 1) index + GRID_SIZE else null
+                            }
+                            if (targetIndex != null) {
+                                isAnimating = true
+                                val newGrid = swapTiles(grid, index, targetIndex)
+                                val matches = checkMatches(newGrid)
+                                if (matches.isNotEmpty()) {
+                                    grid = newGrid
+                                    isAnimating = false
                                 } else {
-                                    val (r1, c1) = selected!!
-                                    if ((r1 == row && (c1 - col).absoluteValue == 1) ||
-                                        (c1 == col && (r1 - row).absoluteValue == 1)) {
-                                        val newGrid = swapTiles(grid, r1, c1, row, col)
-                                        val matches = checkMatches(newGrid)
-                                        if (matches.isNotEmpty()) {
-                                            grid = newGrid
-                                        } else {
-                                            grid = newGrid
-                                            scope.launch {
-                                                delay(300L)
-                                                grid = swapTiles(newGrid, r1, c1, row, col)
-                                            }
-                                        }
-                                        selected = null
-                                    } else {
-                                        selected = row to col
+                                    grid = newGrid
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(300L)
+                                        grid = swapTiles(newGrid, index, targetIndex)
+                                        isAnimating = false
                                     }
                                 }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
-                if (score >= 100) {
-                    score -= 100
+                if (donationCurrency >= 50) {
+                    donationCurrency -= 50
                     passiveIncome++
                 }
             }) {
-                Text("Купить пассивный заработок (+1) - 100")
+                Text("Купить пассивный заработок (+1) - 50 валюты")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = {
-                if (score >= 50) {
-                    score -= 50
+                if (donationCurrency >= 25) {
+                    donationCurrency -= 25
                     scoreMultiplier++
                 }
             }) {
-                Text("Увеличить очки за сборку 3 в ряд (+1) - 50")
+                Text("Увеличить очки за сборку 3 в ряд (+1) - 25 валюты")
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { shopOpen = !shopOpen }) {
-                Text(if (shopOpen) "Закрыть магазин" else "Открыть магазин")
+            Button(onClick = { shopOpen = true }) {
+                Text("Открыть магазин")
             }
         }
 
@@ -266,34 +270,54 @@ fun Match3Game() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .zIndex(2f)
-                    .background(Color.White.copy(alpha = 0.95f))
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .zIndex(2f),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
+                Card(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .size(width = 350.dp, height = 500.dp)
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
-                    shopItems.forEach { item ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = item.first),
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = Color.Unspecified
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text("+${item.second} валюты", fontSize = 18.sp)
-                                Button(onClick = { donationCurrency += item.second }) {
-                                    Text("Купить (бесплатно)")
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "Магазин",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        shopItems.forEach { item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = item.first),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = Color.Unspecified
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("+${item.second} валюты", fontSize = 16.sp)
+                                    Button(onClick = { donationCurrency += item.second }) {
+                                        Text("Купить (бесплатно)")
+                                    }
                                 }
                             }
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        Button(onClick = { shopOpen = false }) {
+                            Text("Закрыть магазин")
                         }
                     }
                 }
@@ -302,8 +326,12 @@ fun Match3Game() {
     }
 }
 
+enum class SwipeDirection {
+    LEFT, RIGHT, UP, DOWN
+}
+
 @Composable
-fun TileView(tile: Tile, row: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun TileView(tile: Tile, onSwipe: (SwipeDirection) -> Unit) {
     val noteImages = listOf(
         R.drawable.note1,
         R.drawable.note2,
@@ -311,20 +339,23 @@ fun TileView(tile: Tile, row: Int, modifier: Modifier = Modifier, onClick: () ->
         R.drawable.note4,
         R.drawable.note5
     )
-    // Анимация падения для новых плиток
-    val offsetY = remember { Animatable(if (tile.imageIndex != -1 && row < 2) -55f * (row + 1) else 0f) }
-    LaunchedEffect(tile.id) {
-        if (tile.imageIndex != -1 && row < 2) {
-            offsetY.animateTo(0f, animationSpec = tween(500))
-        }
-    }
     if (tile.imageIndex in 0..4) {
         Box(
-            modifier = modifier
+            modifier = Modifier
                 .size(55.dp)
                 .padding(3.dp)
-                .offset(y = with(LocalDensity.current) { offsetY.value.dp })
-                .pointerInput(Unit) { detectTapGestures { onClick() } },
+                .pointerInput(Unit) {
+                    detectDragGestures { _, offset ->
+                        val direction = when {
+                            offset.x > 30 -> SwipeDirection.RIGHT
+                            offset.x < -30 -> SwipeDirection.LEFT
+                            offset.y < -30 -> SwipeDirection.UP
+                            offset.y > 30 -> SwipeDirection.DOWN
+                            else -> null
+                        }
+                        direction?.let { onSwipe(it) }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -335,106 +366,123 @@ fun TileView(tile: Tile, row: Int, modifier: Modifier = Modifier, onClick: () ->
             )
         }
     } else {
-        Box(modifier = modifier.size(55.dp).padding(3.dp))
+        Box(modifier = Modifier.size(55.dp).padding(3.dp))
     }
 }
 
-fun generateGrid(): MutableList<MutableList<Tile>> {
-    var grid = MutableList(GRID_SIZE) {
-        MutableList(GRID_SIZE) { Tile(imageIndex = Random.nextInt(0, 5), id = Random.nextLong()) }
-    }
+fun generateGrid(): List<Tile> {
+    var grid = List(TOTAL_TILES) { Tile(imageIndex = Random.nextInt(0, 5)) }
+    var attempts = 0
     while (checkMatches(grid).isNotEmpty()) {
-        grid = MutableList(GRID_SIZE) {
-            MutableList(GRID_SIZE) { Tile(imageIndex = Random.nextInt(0, 5), id = Random.nextLong()) }
+        grid = List(TOTAL_TILES) { Tile(imageIndex = Random.nextInt(0, 5)) }
+        attempts++
+        if (attempts > 100) {
+            println("Warning: Could not generate grid without matches after 100 attempts")
+            break
         }
     }
+    println("Initial grid: ${grid.chunked(GRID_SIZE).joinToString { row -> row.joinToString { it.imageIndex.toString() } }}")
     return grid
 }
 
-fun swapTiles(grid: MutableList<MutableList<Tile>>, r1: Int, c1: Int, r2: Int, c2: Int): MutableList<MutableList<Tile>> {
-    val newGrid = grid.map { it.toMutableList() }.toMutableList()
-    val temp = newGrid[r1][c1]
-    newGrid[r1][c1] = newGrid[r2][c2]
-    newGrid[r2][c2] = temp
+fun swapTiles(grid: List<Tile>, index1: Int, index2: Int): List<Tile> {
+    val newGrid = grid.toMutableList()
+    val temp = newGrid[index1]
+    newGrid[index1] = newGrid[index2]
+    newGrid[index2] = temp
     return newGrid
 }
 
-fun checkMatches(grid: MutableList<MutableList<Tile>>): Set<Pair<Int, Int>> {
-    val matches = mutableSetOf<Pair<Int, Int>>()
-    // Горизонтальные совпадения
-    for (r in 0 until GRID_SIZE) {
-        var c = 0
-        while (c < GRID_SIZE - 2) {
-            if (grid[r][c].imageIndex != -1 &&
-                grid[r][c].imageIndex == grid[r][c + 1].imageIndex &&
-                grid[r][c].imageIndex == grid[r][c + 2].imageIndex) {
-                matches.add(r to c)
-                matches.add(r to (c + 1))
-                matches.add(r to (c + 2))
-                c += 3
+fun checkMatches(grid: List<Tile>): Set<Int> {
+    val matches = mutableSetOf<Int>()
+    // Horizontal matches
+    for (row in 0 until GRID_SIZE) {
+        var col = 0
+        while (col < GRID_SIZE - 2) {
+            val index = row * GRID_SIZE + col
+            if (grid[index].imageIndex != -1 &&
+                grid[index].imageIndex == grid[index + 1].imageIndex &&
+                grid[index].imageIndex == grid[index + 2].imageIndex) {
+                matches.add(index)
+                matches.add(index + 1)
+                matches.add(index + 2)
+                col += 3
             } else {
-                c++
+                col++
             }
         }
     }
-    // Вертикальные совпадения
-    for (c in 0 until GRID_SIZE) {
-        var r = 0
-        while (r < GRID_SIZE - 2) {
-            if (grid[r][c].imageIndex != -1 &&
-                grid[r][c].imageIndex == grid[r + 1][c].imageIndex &&
-                grid[r][c].imageIndex == grid[r + 2][c].imageIndex) {
-                matches.add(r to c)
-                matches.add((r + 1) to c)
-                matches.add((r + 2) to c)
-                r += 3
+    // Vertical matches
+    for (col in 0 until GRID_SIZE) {
+        var row = 0
+        while (row < GRID_SIZE - 2) {
+            val index = row * GRID_SIZE + col
+            if (grid[index].imageIndex != -1 &&
+                grid[index].imageIndex == grid[index + GRID_SIZE].imageIndex &&
+                grid[index].imageIndex == grid[index + 2 * GRID_SIZE].imageIndex) {
+                matches.add(index)
+                matches.add(index + GRID_SIZE)
+                matches.add(index + 2 * GRID_SIZE)
+                row += 3
             } else {
-                r++
+                row++
             }
         }
     }
     return matches
 }
 
-fun removeMatches(grid: MutableList<MutableList<Tile>>, matches: Set<Pair<Int, Int>>): MutableList<MutableList<Tile>> {
-    val newGrid = grid.map { it.toMutableList() }.toMutableList()
-    matches.forEach { (r, c) -> newGrid[r][c] = Tile(-1, Random.nextLong()) }
+fun removeMatches(grid: List<Tile>, matches: Set<Int>): List<Tile> {
+    val newGrid = grid.mapIndexed { index, tile ->
+        if (index in matches) Tile(-1, Random.nextLong()) else tile
+    }
+    println("Grid after removeMatches: ${newGrid.chunked(GRID_SIZE).joinToString { row -> row.joinToString { it.imageIndex.toString() } }}")
     return newGrid
 }
 
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
-fun dropTiles(grid: MutableList<MutableList<Tile>>): MutableList<MutableList<Tile>> {
-    val newGrid = MutableList(GRID_SIZE) { MutableList(GRID_SIZE) { Tile(-1, Random.nextLong()) } }
-    for (c in 0 until GRID_SIZE) {
-        // Собираем валидные плитки (imageIndex != -1)
-        val validTiles = mutableListOf<Tile>()
-        for (r in 0 until GRID_SIZE) {
-            if (grid[r][c].imageIndex != -1) {
-                validTiles.add(grid[r][c])
+fun dropTiles(grid: List<Tile>): List<Tile> {
+    val newGrid = MutableList(TOTAL_TILES) { Tile(-1) }
+    for (col in 0 until GRID_SIZE) {
+        val columnTiles = mutableListOf<Tile>()
+        for (row in 0 until GRID_SIZE) {
+            val index = row * GRID_SIZE + col
+            if (grid[index].imageIndex != -1) {
+                columnTiles.add(grid[index])
             }
         }
-        // Заполняем колонку снизу вверх
-        for (r in GRID_SIZE - 1 downTo 0) {
-            if (validTiles.isNotEmpty()) {
-                newGrid[r][c] = validTiles.removeLast()
+        for (row in GRID_SIZE - 1 downTo 0) {
+            val index = row * GRID_SIZE + col
+            if (columnTiles.isNotEmpty()) {
+                newGrid[index] = columnTiles.removeLast()
             } else {
-                newGrid[r][c] = Tile(Random.nextInt(0, 5), Random.nextLong())
+                newGrid[index] = Tile(Random.nextInt(0, 5), Random.nextLong())
             }
         }
     }
+    println("Grid after dropTiles: ${newGrid.chunked(GRID_SIZE).joinToString { row -> row.joinToString { it.imageIndex.toString() } }}")
     return newGrid
 }
 
 data class FallingObject(
     val resId: Int,
-    var x: Float = Random.nextFloat() * 360f,
+    var x: Float,
     var y: Float = -100f,
-    val size: Int = Random.nextInt(32, 64),
+    val size: Int = Random.nextInt(20, 50), // Уменьшенный размер для меньшей нагрузки
     var angle: Float = Random.nextFloat() * 360f,
-    val speed: Float = Random.nextFloat() * 2f + 1f
+    val speed: Float = Random.nextFloat() * 4f + 3f, // Ускоренное падение
+    val rotationSpeed: Float = Random.nextFloat() * 2f - 1f // Случайная скорость вращения
 ) {
-    fun update() {
-        y += speed
-        angle += 1f
+    constructor(resId: Int, screenWidthPx: Float) : this(
+        resId,
+        x = Random.nextFloat() * screenWidthPx
+    )
+
+    fun update(deltaTime: Float) {
+        y += speed * deltaTime * 60f // Масштабирование скорости по времени кадра
+        angle += rotationSpeed * deltaTime * 60f // Плавное вращение
+        if (y > -100f) { // Логирование только для видимых объектов
+            println("FallingObject: x=$x, y=$y, size=$size, resId=$resId")
+        }
     }
 }
