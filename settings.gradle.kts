@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ThreeMatchOneHummerApp"
+rootProject.name = "ThreeMatchOneHummer"
 include(":app")

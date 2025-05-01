@@ -8,7 +8,7 @@ android {
 
     applicationVariants.all {
         outputs.all {
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName = "3M1H-${name}.apk"
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName = "ThreeMatchOneHummer-${name}.apk"
         }
     }
 
@@ -20,7 +20,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
