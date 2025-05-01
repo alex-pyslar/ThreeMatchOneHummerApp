@@ -68,7 +68,7 @@ fun Match3Game() {
         Triple(R.drawable.shop2, 25, 0),
         Triple(R.drawable.shop3, 50, 0)
     )
-    val bgColor = Color(0x00FFE4EA)
+    val bgColor = Color(0xFFFFE4EC)
     val bgPictures = listOf(
         R.drawable.bg_picture1,
         R.drawable.bg_picture2,
@@ -82,7 +82,7 @@ fun Match3Game() {
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(100L) // Более частое создание объектов
-            if (fallingObjects.size < 30) { // Ограничение количества для производительности
+            if (fallingObjects.size < 120) { // Ограничение количества для производительности
                 fallingObjects.add(FallingObject(bgPictures.random(), screenWidthPx))
             }
             // Удаление объектов, вышедших за пределы экрана
@@ -94,7 +94,7 @@ fun Match3Game() {
     LaunchedEffect(Unit) {
         var lastTime = System.nanoTime()
         while (true) {
-            kotlinx.coroutines.delay(16L) // ~60 FPS
+            kotlinx.coroutines.delay(8L) // ~60 FPS
             val currentTime = System.nanoTime()
             val deltaTime = (currentTime - lastTime) / 1_000_000_000f // В секундах
             lastTime = currentTime
@@ -248,7 +248,7 @@ fun Match3Game() {
                     passiveIncome++
                 }
             }) {
-                Text("Купить пассивный заработок (+1) - 50 валюты")
+                Text("Увеличить пассивный заработок - 50")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = {
@@ -257,7 +257,7 @@ fun Match3Game() {
                     scoreMultiplier++
                 }
             }) {
-                Text("Увеличить очки за сборку 3 в ряд (+1) - 25 валюты")
+                Text("Увеличить очки - 25")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = { shopOpen = true }) {
